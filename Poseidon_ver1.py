@@ -287,7 +287,7 @@ class Poseidon(nn.Module):
         intermediate_outputs['model_output'] = model_output
         intermediate_outputs['model_output'] = intermediate_outputs['model_output'].view(batch_size, num_frames, self.embed_dim, 24, 18)
 
-
+        
         # Feature Fusion　(特徴統合)
         x = self.feature_fusion(intermediate_outputs)
         
