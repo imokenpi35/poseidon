@@ -263,17 +263,13 @@ class Poseidon(nn.Module):
 
     def forward(self, x, meta=None):
         batch_size, num_frames, C, H, W = x.shape #(バッチサイズ、Windowサイズ、チャネル数、Hight、Wide)
-        print(x.shape)
-        x = x.view(-1, C, H, W)
-        print(x.shape)
+        x = x.view(-1, C, H, W) #(1,14,c,H,W)→(10,5,C,H,W)
+        print(f"s.shape{x.shape}")
         # Backbone
         intermediate_outputs, model_output = self.extract_layers(x)
 
-        print(model_output.shape)
+        print(f"model_output:{model_output.shape}")
         #extra_layers前後で分割
-
-        #正規化やデータ構造の復元を行う前にグループ化
-        #グループ化：リストを作成し、各リストにWindowSize分の特徴を入れていく
         
         # Apply LayerNorm to the extracted features（正規化、データ構造の復元）
         for feature_name in intermediate_outputs.keys():
@@ -288,6 +284,10 @@ class Poseidon(nn.Module):
         intermediate_outputs['model_output'] = intermediate_outputs['model_output'].view(batch_size, num_frames, self.embed_dim, 24, 18)
 
         
+        print(f"intermediate_outputs_shape:{intermediate_outputs.shape}")
+        print(f"intermediate_outputs:{intermediate_outputs}")
+
+
         # Feature Fusion　(特徴統合)
         x = self.feature_fusion(intermediate_outputs)
         

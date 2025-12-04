@@ -25,7 +25,7 @@ from datasets.zoo.posetrack.pose_skeleton import (
 
 
 #処理枚数
-PROCESS_NUMBER=5
+PROCESS_NUMBER=10
 
 
 # ─────────────────────── Utility ───────────────────────
@@ -243,8 +243,10 @@ def process_video(model, detector, device, cfg, args):
                     for f in sampled
                 ]
 
-                inp_tmp = torch.stack(crops)
-                inp =inp_tmp.unsqueeze(1).to(device)
+                inp = torch.stack(crops).unsqueeze(0).to(device)
+
+                #inp_tmp = torch.stack(crops)
+                #inp =inp_tmp.unsqueeze(1).to(device)
                 print(inp.shape)
                 
                 
