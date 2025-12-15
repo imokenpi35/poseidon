@@ -284,12 +284,14 @@ class Poseidon(nn.Module):
         # concatenate intermediate outputs and model output(最終出力を中間特徴辞書に追加、データ構造の復元)
         intermediate_outputs['model_output'] = model_output
         intermediate_outputs['model_output'] = intermediate_outputs['model_output'].view(batch_size, num_frames, self.embed_dim, 24, 18)
+        
+        """
         print("変更前")
         print("---- intermediate_outputs ----")
         for k, v in intermediate_outputs.items():
             print(f"{k}: {v.shape}")
         print("------------------------------")
-
+        """
 
         window_size=5
         stride=1
@@ -309,25 +311,26 @@ class Poseidon(nn.Module):
             intermediate_outputs[k]=torch.stack(feat_list, dim=0)
         
         # 追加作業後の新しいバッチとフレームの次元を計算
-        new_batch_frames = T - window_size + 1 # 14 - 5 + 1 = 10
+        new_batch_frames = T - window_size + 1 # 14 - 5 + 1 = 10 
         new_batch_size = new_batch_frames # 10 (スライディングウィンドウ処理後の「新しいバッチ」として扱う)
         new_num_frames = window_size       # 5 (新しいバッチ内のフレーム数)
-        
+
+        """
         print("変更後")
         print("---- intermediate_outputs ----")
         for k, v in intermediate_outputs.items():
             print(f"{k}: {v.shape}")
         print("------------------------------")
-
+        """
         # Feature Fusion　(特徴統合)
         x = self.feature_fusion(intermediate_outputs)
 
         print(f"x:{x.shape}")
         
-        # Reshape to separate frames　(特徴統合後の出力がB*Tをフレーム毎に分割)
+        # Reshape to separate frames　(特徴統合後の出力がB*Tをフレーム　毎に分割)
         x = x.view(new_batch_size, new_num_frames, self.embed_dim, 24, 18) # [batch_size, num_frames, 384, 24, 18]  ß
 
-        # Adaptive Frame Weighting
+        # Adaptive Frame Weighting　　
         x, frame_weights = self.adaptive_weighting(x)
         
         # Cross-Attention
@@ -355,6 +358,7 @@ class Poseidon(nn.Module):
 
         # Final layer
         x = self.final_layer(x)
+        print(f"x:shape {x.shape}")
         
         return x
 
@@ -388,5 +392,4 @@ class Poseidon(nn.Module):
             norm_factor=np.ones((N, 2), dtype=np.float32))
 
         return avg_acc
-
 

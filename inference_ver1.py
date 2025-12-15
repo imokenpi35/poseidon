@@ -255,10 +255,41 @@ def process_video(model, detector, device, cfg, args):
                 
                 with torch.no_grad():
                     hm = model(inp)
-                    
+                
                 end_time_model=time.time()
+                
+                """確認（各フレームを姿勢推定できてるか）
+                diffs = []
+                for i in range(hm.shape[0] - 1):
+                    diff = torch.mean(torch.abs(hm[i] - hm[i+1])).item()
+                    diffs.append(diff)
 
-                kps = extract_kps(hm, h_crop, w_crop)
+                print("mean diff between consecutive frames:", diffs)
+                """
+
+
+                all_kps=[]
+                for b in range(hm.shape[0]):
+                    heatmap = hm[b].unsqueeze(0)   # [1, 17, 96, 72]
+                    kps = extract_kps(heatmap, h_crop, w_crop)
+
+                    kp_map = {
+                        name: (int(kps[i][0]) + x1c, int(kps[i][1]) + y1c)
+                        for i, name in enumerate(MAPPED_KP_NAMES)
+                    }
+
+                    all_kps.append(kp_map)
+
+                img = frame.copy()
+                for i, kps in enumerate(all_kps):
+                    x, y = kps['nose']
+                    cv2.circle(img, (int(x), int(y)), 3, (0, 0, 255 - i*20), -1)
+
+                cv2.imwrite('test_estimation.png', img)
+                
+                
+                
+                #kps = extract_kps(hm, h_crop, w_crop)
 
                 # Create a mapping from keypoint names to their coordinates
                 kp_map = {
@@ -307,7 +338,7 @@ def process_video(model, detector, device, cfg, args):
             print(f"{frame_count}フレーム目 入力:{input_time:.4f}s モデル{model_time:.4f}s")
             image_id += 1
             frame_count += 1
-            buf = buf[args.step:]
+            buf = buf[PROCESS_NUMBER+window-3:] 
 
         coco_dict = {
             "info": {"description": "Poseidon predictions"},
