@@ -1,8 +1,10 @@
+
 import os
 import sys
 import torch
 import torch.nn as nn
 import numpy as np
+import math
 from mmpose.evaluation.functional import keypoint_pck_accuracy
 from easydict import EasyDict
 from utils.common import TRAIN_PHASE, VAL_PHASE, TEST_PHASE
@@ -282,29 +284,62 @@ class Poseidon(nn.Module):
         # concatenate intermediate outputs and model output(最終出力を中間特徴辞書に追加、データ構造の復元)
         intermediate_outputs['model_output'] = model_output
         intermediate_outputs['model_output'] = intermediate_outputs['model_output'].view(batch_size, num_frames, self.embed_dim, 24, 18)
+        print("変更前")
+        print("---- intermediate_outputs ----")
+        for k, v in intermediate_outputs.items():
+            print(f"{k}: {v.shape}")
+        print("------------------------------")
 
+
+        window_size=5
+        stride=1
+        B=1
+        T=14
         
-        print(f"intermediate_outputs_shape:{intermediate_outputs.shape}")
-        print(f"intermediate_outputs:{intermediate_outputs}")
-
+        #追加作業
+        for k,v in intermediate_outputs.items():
+            feat_list=[] 
+            for b in range(0,B):
+                for i in range(0, T-math.floor(window_size/2)*2, stride):
+                    window = v[b, i:i+window_size] 
+                    if window.shape[0] < window_size:
+                        pad = window[-1:].repeat(window_size - window.shape[0], 1, 1, 1)
+                        window = torch.cat([window, pad], dim=0)
+                    feat_list.append(window)
+            intermediate_outputs[k]=torch.stack(feat_list, dim=0)
+        
+        # 追加作業後の新しいバッチとフレームの次元を計算
+        new_batch_frames = T - window_size + 1 # 14 - 5 + 1 = 10
+        new_batch_size = new_batch_frames # 10 (スライディングウィンドウ処理後の「新しいバッチ」として扱う)
+        new_num_frames = window_size       # 5 (新しいバッチ内のフレーム数)
+        
+        print("変更後")
+        print("---- intermediate_outputs ----")
+        for k, v in intermediate_outputs.items():
+            print(f"{k}: {v.shape}")
+        print("------------------------------")
 
         # Feature Fusion　(特徴統合)
         x = self.feature_fusion(intermediate_outputs)
+
+        print(f"x:{x.shape}")
         
         # Reshape to separate frames　(特徴統合後の出力がB*Tをフレーム毎に分割)
-        x = x.view(batch_size, num_frames, self.embed_dim, 24, 18) # [batch_size, num_frames, 384, 24, 18]  ß
+        x = x.view(new_batch_size, new_num_frames, self.embed_dim, 24, 18) # [batch_size, num_frames, 384, 24, 18]  ß
 
         # Adaptive Frame Weighting
         x, frame_weights = self.adaptive_weighting(x)
         
         # Cross-Attention
-        center_frame_idx = num_frames // 2
+        current_num_frames = x.shape[1]
+        center_frame_idx = current_num_frames // 2
         center_frame = x[:, center_frame_idx]
         context_frames = torch.cat([x[:, :center_frame_idx], x[:, center_frame_idx+1:]], dim=1)
 
         context_frames = context_frames.view(-1, self.embed_dim, 24*18).permute(2, 0, 1)
         context_frames, _ = self.self_attention(context_frames, context_frames, context_frames)
-        context_frames = context_frames.permute(1, 2, 0).view(batch_size, num_frames-1, self.embed_dim, 24, 18)
+        context_frames = context_frames.permute(1, 2, 0)
+        context_frames = context_frames.view(new_batch_size, current_num_frames-1, self.embed_dim, 24, 18)
 
         # Cross-Attention
         attended_features = self.cross_attention(center_frame, context_frames)
@@ -353,4 +388,5 @@ class Poseidon(nn.Module):
             norm_factor=np.ones((N, 2), dtype=np.float32))
 
         return avg_acc
+
 
