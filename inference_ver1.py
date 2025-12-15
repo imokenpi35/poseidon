@@ -243,8 +243,8 @@ def process_video(model, detector, device, cfg, args):
                     for f in sampled
                 ]
 
-                inp = torch.stack(crops).unsqueeze(0).to(device)
 
+                inp = torch.stack(crops).unsqueeze(0).to(device)
                 #inp_tmp = torch.stack(crops)
                 #inp =inp_tmp.unsqueeze(1).to(device)
                 print(inp.shape)
