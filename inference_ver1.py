@@ -10,6 +10,8 @@ import random
 
 import time
 
+import math
+
 import cv2
 import numpy as np
 import torch
@@ -194,6 +196,7 @@ def process_video(model, detector, device, cfg, args):
 
         annotations = []
         image_id = 0
+        image_id_tmp =0
         ann_id   = 0
         frame_count = 0
 
@@ -258,17 +261,10 @@ def process_video(model, detector, device, cfg, args):
                 
                 end_time_model=time.time()
                 
-                """確認（各フレームを姿勢推定できてるか）
-                diffs = []
-                for i in range(hm.shape[0] - 1):
-                    diff = torch.mean(torch.abs(hm[i] - hm[i+1])).item()
-                    diffs.append(diff)
+                print(f"hm:{type(hm)}")
 
-                print("mean diff between consecutive frames:", diffs)
-                """
-
-
-                all_kps=[]
+                image_id =image_id_tmp
+                
                 for b in range(hm.shape[0]):
                     heatmap = hm[b].unsqueeze(0)   # [1, 17, 96, 72]
                     kps = extract_kps(heatmap, h_crop, w_crop)
@@ -277,46 +273,34 @@ def process_video(model, detector, device, cfg, args):
                         name: (int(kps[i][0]) + x1c, int(kps[i][1]) + y1c)
                         for i, name in enumerate(MAPPED_KP_NAMES)
                     }
+                    
+                    
+                    
+                    if 'nose' in kp_map:
+                        kp_map['head_bottom'] = kp_map['nose']
+                        
+                    # Draw circles for each keypoint
+                    for i, (px, py) in enumerate(kps):
+                        color = USED_KP_COLORS[i]
+                        cv2.circle(sampled[b], (int(px) + x1c, int(py) + y1c), 2, color, -1)                 
+                    
+                    # Draw lines to connect the keypoints(描図、線の太さ)
+                    for kp1_name, kp2_name, _ in PoseTrack_Keypoint_Pairs:
+                        if kp1_name in kp_map and kp2_name in kp_map:
+                            pt1 = kp_map[kp1_name]
+                            pt2 = kp_map[kp2_name]
+                            cv2.line(sampled[b], pt1, pt2, (0, 255, 0), 2)
 
-                    all_kps.append(kp_map)
-
-                img = frame.copy()
-                for i, kps in enumerate(all_kps):
-                    x, y = kps['nose']
-                    cv2.circle(img, (int(x), int(y)), 3, (0, 0, 255 - i*20), -1)
-
-                cv2.imwrite('test_estimation.png', img)
                 
+                    # update json annotations
+                    coco_keypoints = to_coco(kps)
+                    # bbox = [x1, y1, width, height] as required by COCO
+
                 
-                
-                #kps = extract_kps(hm, h_crop, w_crop)
-
-                # Create a mapping from keypoint names to their coordinates
-                kp_map = {
-                    name: (int(kps[i][0]) + x1c, int(kps[i][1]) + y1c)
-                    for i, name in enumerate(MAPPED_KP_NAMES)
-                }
-                if 'nose' in kp_map:
-                    kp_map['head_bottom'] = kp_map['nose']
-
-                # Draw circles for each keypoint
-                for i, (px, py) in enumerate(kps):
-                    color = USED_KP_COLORS[i]
-                    cv2.circle(center, (int(px) + x1c, int(py) + y1c), 2, color, -1)
-
-                # Draw lines to connect the keypoints(描図、線の太さ)
-                for kp1_name, kp2_name, _ in PoseTrack_Keypoint_Pairs:
-                    if kp1_name in kp_map and kp2_name in kp_map:
-                        pt1 = kp_map[kp1_name]
-                        pt2 = kp_map[kp2_name]
-                        cv2.line(center, pt1, pt2, (0, 255, 0), 2)
-                
-                # update json annotations
-                coco_keypoints = to_coco(kps)
-                # bbox = [x1, y1, width, height] as required by COCO
-                bbox = [float(x1c), float(y1c), float(w_crop), float(h_crop)]
-
-                annotations.append({
+                    bbox = [float(x1c), float(y1c), float(w_crop), float(h_crop)]
+                    ##ann_idの更新とimage_idの更新が必要
+                    #描写される対象フレームが合致しているか確認(現状、centerフレームにのみ描写されている→対応するフレームとposeに合わせて描写)
+                    annotations.append({
                     "id": ann_id,
                     "image_id": image_id,
                     "category_id": 1,           # person
@@ -325,20 +309,22 @@ def process_video(model, detector, device, cfg, args):
                     "bbox": bbox,
                     "area": float(w_crop*h_crop),
                     "iscrowd": 0
-                })
+                    })
+                    image_id +=1
                 ann_id += 1
             
+            image_id_tmp = image_id
+            
             # ── ensure frame size is still what we promised ──
-            assert center.shape[0] == H_img and center.shape[1] == W_img
 
-
+            for i in range(len(sampled)):
+                assert sampled[i].shape[0] == H_img and sampled[i].shape[1] == W_img
+                out.write(sampled[i])
             input_time=end_time_input-start_time_input
             model_time=end_time_model-start_time_model
-            out.write(center)
-            print(f"{frame_count}フレーム目 入力:{input_time:.4f}s モデル{model_time:.4f}s")
-            image_id += 1
-            frame_count += 1
-            buf = buf[PROCESS_NUMBER+window-3:] 
+            #print(f"{frame_count}フレーム目 入力:{input_time:.4f}s モデル{model_time:.4f}s")
+            frame_count += PROCESS_NUMBER #これあってる?
+            buf = buf[PROCESS_NUMBER+args.window-1-math.floor(args.window/2):] 
 
         coco_dict = {
             "info": {"description": "Poseidon predictions"},
