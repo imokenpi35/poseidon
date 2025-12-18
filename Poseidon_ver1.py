@@ -266,11 +266,11 @@ class Poseidon(nn.Module):
     def forward(self, x, meta=None):
         batch_size, num_frames, C, H, W = x.shape #(バッチサイズ、Windowサイズ、チャネル数、Hight、Wide)
         x = x.view(-1, C, H, W) #(1,14,c,H,W)→(10,5,C,H,W)
-        print(f"s.shape{x.shape}")
+        #print(f"s.shape{x.shape}")
         # Backbone
         intermediate_outputs, model_output = self.extract_layers(x)
 
-        print(f"model_output:{model_output.shape}")
+        #print(f"model_output:{model_output.shape}")
         #extra_layers前後で分割
         
         # Apply LayerNorm to the extracted features（正規化、データ構造の復元）
@@ -325,7 +325,7 @@ class Poseidon(nn.Module):
         # Feature Fusion　(特徴統合)
         x = self.feature_fusion(intermediate_outputs)
 
-        print(f"x:{x.shape}")
+        #print(f"x:{x.shape}")
         
         # Reshape to separate frames　(特徴統合後の出力がB*Tをフレーム　毎に分割)
         x = x.view(new_batch_size, new_num_frames, self.embed_dim, 24, 18) # [batch_size, num_frames, 384, 24, 18]  ß

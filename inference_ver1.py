@@ -102,7 +102,7 @@ def parse_args():
                    help="number of frames per inference window")
     p.add_argument("-s", "--step", type=int, default=1,
                    help="frame stride between samples")
-    p.add_argument("--coco_json", default="sample/predictions.json",
+    p.add_argument("--coco_json", default="sample/predictions_s_1.json",
                help="file to store COCO-format results")
     p.add_argument("-g", "--gpu", type=int, default=0, help="CUDA device index")
     return p.parse_args()
@@ -261,7 +261,6 @@ def process_video(model, detector, device, cfg, args):
                 
                 end_time_model=time.time()
                 
-                print(f"hm:{type(hm)}")
 
                 image_id =image_id_tmp
                 
@@ -289,14 +288,16 @@ def process_video(model, detector, device, cfg, args):
                         if kp1_name in kp_map and kp2_name in kp_map:
                             pt1 = kp_map[kp1_name]
                             pt2 = kp_map[kp2_name]
-                            cv2.line(sampled[b], pt1, pt2, (0, 255, 0), 2)
+                            cv2.line(sampled[b+2], pt1, pt2, (0, 255, 0), 2)
 
                 
                     # update json annotations
                     coco_keypoints = to_coco(kps)
                     # bbox = [x1, y1, width, height] as required by COCO
 
-                
+                    print(f"image_id:{image_id}")
+                    print(f"ann_id:{ann_id}")
+                    
                     bbox = [float(x1c), float(y1c), float(w_crop), float(h_crop)]
                     ##ann_idの更新とimage_idの更新が必要
                     #描写される対象フレームが合致しているか確認(現状、centerフレームにのみ描写されている→対応するフレームとposeに合わせて描写)
@@ -317,14 +318,14 @@ def process_video(model, detector, device, cfg, args):
             
             # ── ensure frame size is still what we promised ──
 
-            for i in range(len(sampled)):
+            for i in range(math.floor(args.window/2),len(sampled)-math.floor(args.window/2)):
                 assert sampled[i].shape[0] == H_img and sampled[i].shape[1] == W_img
                 out.write(sampled[i])
             input_time=end_time_input-start_time_input
             model_time=end_time_model-start_time_model
-            #print(f"{frame_count}フレーム目 入力:{input_time:.4f}s モデル{model_time:.4f}s")
             frame_count += PROCESS_NUMBER #これあってる?
-            buf = buf[PROCESS_NUMBER+args.window-1-math.floor(args.window/2):] 
+            print(f"{frame_count}フレーム目まで 入力:{input_time:.4f}s モデル{model_time:.4f}s")
+            buf = buf[PROCESS_NUMBER:] 
 
         coco_dict = {
             "info": {"description": "Poseidon predictions"},
