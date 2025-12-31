@@ -26,8 +26,9 @@ from datasets.zoo.posetrack.pose_skeleton import (
 )
 
 
-#処理枚数
-PROCESS_NUMBER=10
+MAX_PROCESS_NUMBER=20
+MIM_PROCESS_NUMBER=5
+SCENE_THRESH = 23.0
 
 
 # ─────────────────────── Utility ───────────────────────
@@ -178,7 +179,12 @@ def extract_kps(heatmaps, h_crop, w_crop):
     xs = (idx % W).float() * (w_crop / W)
     return torch.stack([xs, ys], dim=1).cpu().numpy()
 
-
+def frame_diff_score(prev_frame,curr_frame):
+    prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+    curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+    diff = cv2.absdiff(prev_gray, curr_gray)
+    return diff.mean()
+    
 # ─────────────────────── Main loop ───────────────────────
 def process_video(model, detector, device, cfg, args):
     cap = cv2.VideoCapture(args.video_in)
@@ -201,6 +207,7 @@ def process_video(model, detector, device, cfg, args):
         frame_count = 0
         total_input_time=0
         total_model_time=0
+        prev_frame=None
 
             #FPS計算
         start_time=time.time()
@@ -213,13 +220,29 @@ def process_video(model, detector, device, cfg, args):
             ok, frame = cap.read()
             if not ok:
                 break
+            
+
+            ##adaptive##
+            if prev_frame is not None:
+                diff_score = frame_diff_score(prev_frame, frame)
+                print(diff_score)
+                scene_change = diff_score > SCENE_THRESH
+            else:
+                scene_change = False
             buf.append(frame)
+            prev_frame=frame
 
-            #PROCESS_NUMBER以下ならフレームの取得を続行
-            if len(buf) < PROCESS_NUMBER+args.window-1:
+            print(f"scene_change:{scene_change}")
+
+            if len(buf)<MIM_PROCESS_NUMBER:
                 continue
-
+            
+            if  scene_change == False and len(buf) < MAX_PROCESS_NUMBER:
+                continue
+               
+            print(f"buf:{len(buf)}")
             buf_len=len(buf)
+            
             sampled = buf[::args.step]#ステップサイズごとに要素の取り出し(処理対象となるフレームを決定)
             center = sampled[len(sampled) // 2].copy() #処理対象リストから中央フレームを取り出す
 
