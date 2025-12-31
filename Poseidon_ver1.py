@@ -263,10 +263,10 @@ class Poseidon(nn.Module):
         return sum(p.numel() for p in model.parameters())
 
 
-    def forward(self, x, meta=None):
+    def forward(self, x,step=None,window_size=None, meta=None):
         batch_size, num_frames, C, H, W = x.shape #(バッチサイズ、Windowサイズ、チャネル数、Hight、Wide)
         x = x.view(-1, C, H, W) #(1,14,c,H,W)→(10,5,C,H,W)
-        #print(f"s.shape{x.shape}")
+        #print(f"x_first:{x.shape}")
         # Backbone
         intermediate_outputs, model_output = self.extract_layers(x)
 
@@ -293,16 +293,15 @@ class Poseidon(nn.Module):
         print("------------------------------")
         """
 
-        window_size=5
-        stride=1
-        B=1
-        T=14
         
+        B=1
+        T=num_frames
+        #print(f"num_frames:{num_frames}")
         #追加作業
         for k,v in intermediate_outputs.items():
             feat_list=[] 
             for b in range(0,B):
-                for i in range(0, T-math.floor(window_size/2)*2, stride):
+                for i in range(0, T-math.floor(window_size/2)*2, step):
                     window = v[b, i:i+window_size] 
                     if window.shape[0] < window_size:
                         pad = window[-1:].repeat(window_size - window.shape[0], 1, 1, 1)
@@ -325,7 +324,7 @@ class Poseidon(nn.Module):
         # Feature Fusion　(特徴統合)
         x = self.feature_fusion(intermediate_outputs)
 
-        #print(f"x:{x.shape}")
+        #print(f"x_fusion:{x.shape}")
         
         # Reshape to separate frames　(特徴統合後の出力がB*Tをフレーム　毎に分割)
         x = x.view(new_batch_size, new_num_frames, self.embed_dim, 24, 18) # [batch_size, num_frames, 384, 24, 18]  ß
@@ -358,7 +357,7 @@ class Poseidon(nn.Module):
 
         # Final layer
         x = self.final_layer(x)
-        print(f"x:shape {x.shape}")
+        print(f"final_x:shape {x.shape}")
         
         return x
 

@@ -199,7 +199,8 @@ def process_video(model, detector, device, cfg, args):
         image_id_tmp =0
         ann_id   = 0
         frame_count = 0
-
+        total_input_time=0
+        total_model_time=0
 
             #FPS計算
         start_time=time.time()
@@ -218,7 +219,7 @@ def process_video(model, detector, device, cfg, args):
             if len(buf) < PROCESS_NUMBER+args.window-1:
                 continue
 
-           
+            buf_len=len(buf)
             sampled = buf[::args.step]#ステップサイズごとに要素の取り出し(処理対象となるフレームを決定)
             center = sampled[len(sampled) // 2].copy() #処理対象リストから中央フレームを取り出す
 
@@ -226,38 +227,68 @@ def process_video(model, detector, device, cfg, args):
             start_time_input=time.time()
             
             # ── Human detection on the centre frame ──(bboxの取得)
-            dets = detector.predict(center, verbose=False)[0]
-            
+            dets_mul=detector.track(sampled, verbose=False ,persist=True,tracker="botsort.yaml")
+            integrated_bboxes={}
            
             #一フレーム内の各bboxに対して処理を行う
-            for box in dets.boxes:
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-                #BBOXを1.25倍
-                w = (x2 - x1) * cfg.DATASET.BBOX_ENLARGE_FACTOR
-                h = (y2 - y1) * cfg.DATASET.BBOX_ENLARGE_FACTOR
+            for frame_result in dets_mul:
+                boxes=frame_result.boxes
 
-                x1c, y1c = int(max(cx - w / 2, 0)), int(max(cy - h / 2, 0))
-                x2c, y2c = int(min(cx + w / 2, W_img)), int(min(cy + h / 2, H_img))
+                if boxes.id is not None:
+                    track_ids = boxes.id.cpu().numpy().astype(int)
+                    xyxy_coords = boxes.xyxy.cpu().numpy()
+
+                    for i in range(len(track_ids)):
+                        track_id = track_ids[i]
+                        x1, y1, x2, y2 = xyxy_coords[i]
+                        if track_id not in integrated_bboxes:
+                    # 初めてのIDの場合、現在の座標で初期化
+                            integrated_bboxes[track_id] = [x1, y1, x2, y2]
+                        else:
+                    # 既にIDが存在する場合、最も左上/右下の座標で更新 (統合)
+                            min_x1, min_y1, max_x2, max_y2 = integrated_bboxes[track_id]
+
+                            integrated_bboxes[track_id][0] = min(min_x1, x1) # 最小の x1
+                            integrated_bboxes[track_id][1] = min(min_y1, y1) # 最小の y1
+                            integrated_bboxes[track_id][2] = max(max_x2, x2) # 最大の x2
+                            integrated_bboxes[track_id][3] = max(max_y2, y2) # 最大の y2
+
+
+        # 2. 中心フレームの検出結果（dets_mul[center_idx]）を統合BBOXで更新
+            center_idx = len(sampled) // 2
+            center_dets = dets_mul[center_idx]
+            new_boxes_list = []
+            for box in center_dets.boxes:
+                if box.id is not None:
+                    track_id = box.id.cpu().numpy().astype(int)[0]
+             # 統合BBOXが存在する場合、その座標を取得
+
+                    if track_id in integrated_bboxes:
+                        x1_int, y1_int, x2_int, y2_int = integrated_bboxes[track_id]
+                        x1c, y1c, x2c, y2c = int(x1_int), int(y1_int), int(x2_int), int(y2_int)
+                    else:
+                        x1c, y1c, x2c, y2c = int(box.xyxy[0].cpu().numpy())
+
+
                 w_crop, h_crop = x2c - x1c, y2c - y1c
-                
+
+
                 crops = [
                     preprocess_frame(f[y1c:y2c, x1c:x2c], cfg.MODEL.IMAGE_SIZE)
                     for f in sampled
                 ]
 
 
+
                 inp = torch.stack(crops).unsqueeze(0).to(device)
-                #inp_tmp = torch.stack(crops)
-                #inp =inp_tmp.unsqueeze(1).to(device)
-                print(inp.shape)
+                #print(f"inp.shape{inp.shape}")
                 
                 
                 end_time_input=time.time()
                 start_time_model=time.time()
                 
                 with torch.no_grad():
-                    hm = model(inp)
+                    hm = model(inp,args.step,args.window)
                 
                 end_time_model=time.time()
                 
@@ -295,8 +326,6 @@ def process_video(model, detector, device, cfg, args):
                     coco_keypoints = to_coco(kps)
                     # bbox = [x1, y1, width, height] as required by COCO
 
-                    print(f"image_id:{image_id}")
-                    print(f"ann_id:{ann_id}")
                     
                     bbox = [float(x1c), float(y1c), float(w_crop), float(h_crop)]
                     ##ann_idの更新とimage_idの更新が必要
@@ -323,9 +352,11 @@ def process_video(model, detector, device, cfg, args):
                 out.write(sampled[i])
             input_time=end_time_input-start_time_input
             model_time=end_time_model-start_time_model
-            frame_count += PROCESS_NUMBER #これあってる?
+            frame_count += buf_len #これあってる?
             print(f"{frame_count}フレーム目まで 入力:{input_time:.4f}s モデル{model_time:.4f}s")
-            buf = buf[PROCESS_NUMBER:] 
+            total_input_time+=input_time
+            total_model_time+=model_time
+            buf = buf[buf_len:] 
 
         coco_dict = {
             "info": {"description": "Poseidon predictions"},
@@ -362,9 +393,16 @@ def process_video(model, detector, device, cfg, args):
     # FPSの計算
         if elapsed_time > 0:
             fps = frame_count / elapsed_time
+            input_fps = frame_count/total_input_time
+            model_fps = frame_count/total_model_time
+            
             print(f"Total Frames Processed: {frame_count}")
             print(f"Total Time: {elapsed_time:.4f} seconds")
             print(f"Inference FPS: {fps:.4f}")
+            print(f"Total input time:{total_input_time:.4f}")
+            print(f"input FPS:{input_fps:.4f}")
+            print(f"Total model time{total_model_time:.4f}")
+            print(f"model fps{model_fps:.4f}")
         else:
             print("Error: Elapsed time is zero.")
         
