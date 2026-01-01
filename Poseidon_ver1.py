@@ -18,6 +18,7 @@ from mmpose.apis import init_model
 
 
 from posetimation import get_cfg, update_config 
+print()
 
 class AdaptiveFrameWeighting(nn.Module):
     def __init__(self, embed_dim, num_frames):
